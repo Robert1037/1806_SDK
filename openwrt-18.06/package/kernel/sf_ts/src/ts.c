@@ -133,8 +133,14 @@ static ssize_t sf_ts_write(struct file *file, const char __user *input,
 		case CMD_DEL_STS:
 			dev = check_dev_in_hlist(mac);
 			if (dev){
+				struct conn_info *entry, *next;
 				hlist_del_rcu(&dev->snode);
 				synchronize_rcu();
+				/* Free all conn_info entries in ct_list to avoid memory leak */
+				list_for_each_entry_safe(entry, next, &dev->ct_list, list) {
+					list_del(&entry->list);
+					kfree(entry);
+				}
 				free_percpu(dev->c);
 				kfree(dev);
 			}else{
@@ -524,6 +530,7 @@ static void __exit sf_ts_exit(void)
 {
 	struct dev_info* dev;
 	struct hlist_node *tmp;
+	struct conn_info *entry, *next;
 	int i = 0;
 
 	if (g_ts_priv) {
@@ -533,6 +540,11 @@ static void __exit sf_ts_exit(void)
 
 		for (i = 0; i < MAC_HASH_SIZE; i++){
 			hlist_for_each_entry_safe(dev, tmp, &g_ts_priv->devlist[i], snode){
+				/* Free all conn_info entries in ct_list to avoid memory leak */
+				list_for_each_entry_safe(entry, next, &dev->ct_list, list) {
+					list_del(&entry->list);
+					kfree(entry);
+				}
 				free_percpu(dev->c);
 				hlist_del(&dev->snode);
 				kfree(dev);
