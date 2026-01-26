@@ -544,10 +544,12 @@ static void __exit sf_ts_exit(void)
 			hlist_for_each_entry_safe(dev, tmp, &g_ts_priv->devlist[i], snode){
 				struct conn_info *entry, *next;
 				/* Free all ct_list entries to avoid memory leak */
+				spin_lock(&dev->ct_lock);
 				list_for_each_entry_safe(entry, next, &dev->ct_list, list) {
 					list_del(&entry->list);
 					kfree(entry);
 				}
+				spin_unlock(&dev->ct_lock);
 				free_percpu(dev->c);
 				hlist_del(&dev->snode);
 				kfree(dev);
