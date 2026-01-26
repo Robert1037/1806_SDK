@@ -133,8 +133,16 @@ static ssize_t sf_ts_write(struct file *file, const char __user *input,
 		case CMD_DEL_STS:
 			dev = check_dev_in_hlist(mac);
 			if (dev){
+				struct conn_info *entry, *next;
 				hlist_del_rcu(&dev->snode);
 				synchronize_rcu();
+				/* Free all ct_list entries to avoid memory leak */
+				spin_lock(&dev->ct_lock);
+				list_for_each_entry_safe(entry, next, &dev->ct_list, list) {
+					list_del(&entry->list);
+					kfree(entry);
+				}
+				spin_unlock(&dev->ct_lock);
 				free_percpu(dev->c);
 				kfree(dev);
 			}else{
@@ -517,6 +525,7 @@ err_out_proc:
 	nf_unregister_net_hooks(&init_net, sf_nf_hook_ops, ARRAY_SIZE(sf_nf_hook_ops));
 err_out_free:
 	kfree(ts_priv);
+	g_ts_priv = NULL;
 	return ret;
 }
 
@@ -533,12 +542,19 @@ static void __exit sf_ts_exit(void)
 
 		for (i = 0; i < MAC_HASH_SIZE; i++){
 			hlist_for_each_entry_safe(dev, tmp, &g_ts_priv->devlist[i], snode){
+				struct conn_info *entry, *next;
+				/* Free all ct_list entries to avoid memory leak */
+				list_for_each_entry_safe(entry, next, &dev->ct_list, list) {
+					list_del(&entry->list);
+					kfree(entry);
+				}
 				free_percpu(dev->c);
 				hlist_del(&dev->snode);
 				kfree(dev);
 			}
 		}
 		kfree(g_ts_priv);
+		g_ts_priv = NULL;
 	}
 }
 
