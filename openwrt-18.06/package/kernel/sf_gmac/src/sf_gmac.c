@@ -1264,26 +1264,27 @@ static int sgmac_rx_refill(struct sgmac_priv *priv, struct sk_buff *last_skb)
 
 			if(ret != SF_DROP)
 				skb_reserve(skb, EXTER_HEADROOM);
-				paddr = dma_map_single(priv->dev, skb->data,
-						priv->dma_buf_sz - NET_IP_ALIGN,
-						DMA_FROM_DEVICE);
-				if (dma_mapping_error(priv->dev, paddr)) {
-					/*
-					 * Caller drops the current packet when SF_DROP is returned.
-					 * Free the original packet skb only if it was not already
-					 * recycled back into an RX descriptor.
-					 */
-					if (orig_last_skb && !orig_last_skb_reused &&
-					    skb != orig_last_skb)
-						dev_kfree_skb_any(orig_last_skb);
-					dev_kfree_skb_any(skb);
-					return SF_DROP;
-				}
-				priv->rx_skbuff[entry] = skb;
-				if (skb == orig_last_skb)
-					orig_last_skb_reused = true;
-				desc_set_buf_addr(p, paddr, priv->dma_buf_sz);
+			paddr = dma_map_single(priv->dev, skb->data,
+					priv->dma_buf_sz - NET_IP_ALIGN,
+					DMA_FROM_DEVICE);
+			if (dma_mapping_error(priv->dev, paddr)) {
+				/*
+				 * Caller drops the current packet when SF_DROP
+				 * is returned.  Free the original received skb
+				 * only if it was not already recycled back into
+				 * an RX descriptor.
+				 */
+				if (orig_last_skb && !orig_last_skb_reused &&
+				    skb != orig_last_skb)
+					dev_kfree_skb_any(orig_last_skb);
+				dev_kfree_skb_any(skb);
+				return SF_DROP;
 			}
+			priv->rx_skbuff[entry] = skb;
+			if (skb == orig_last_skb)
+				orig_last_skb_reused = true;
+			desc_set_buf_addr(p, paddr, priv->dma_buf_sz);
+		}
 
 		netdev_dbg(priv->ndev, "rx ring: head %d, tail %d\n",
 				priv->rx_head, priv->rx_tail);

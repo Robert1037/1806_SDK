@@ -47,10 +47,20 @@ The DMA init allocates `kzalloc` and `dma_alloc_coherent`. You can force failure
 
 ```bash
 # Step 1: On the board, eat up memory to trigger OOM conditions
-# Create memory pressure (adjust size to your board's RAM)
+# Check available memory first
 cat /proc/meminfo | grep MemAvailable
-# Allocate most of available memory
-dd if=/dev/zero of=/dev/null bs=1M count=<enough_to_exhaust> &
+
+# Method A — Fill tmpfs to consume real RAM (preferred for embedded boards)
+AVAIL_KB=$(awk '/MemAvailable/{print $2}' /proc/meminfo)
+FILL_KB=$((AVAIL_KB * 85 / 100))
+dd if=/dev/zero of=/tmp/memfill bs=1024 count=${FILL_KB} 2>/dev/null &
+
+# Method B — stress-ng (if available)
+# stress-ng --vm 1 --vm-bytes 80% --timeout 60s &
+
+# Method C — Kernel fault injection (requires CONFIG_FAILSLAB=y)
+# echo 1 > /sys/kernel/debug/failslab/probability
+# echo 100 > /sys/kernel/debug/failslab/times
 
 # Step 2: Bring interface down then up under pressure
 ifconfig eth0 down
@@ -62,7 +72,9 @@ cat /sys/class/net/eth0/carrier  # Should show 0 or error
 ls /sys/bus/mdio_bus/devices/    # PHY should NOT show as attached
 
 # Step 4: Release memory and retry
-kill %1   # kill the dd
+rm -f /tmp/memfill   # release tmpfs memory (Method A)
+# kill %1             # or kill stress-ng (Method B)
+# echo 0 > /sys/kernel/debug/failslab/probability  # or disable fault injection (Method C)
 ifconfig eth0 up
 # Expected: should succeed on second attempt
 
