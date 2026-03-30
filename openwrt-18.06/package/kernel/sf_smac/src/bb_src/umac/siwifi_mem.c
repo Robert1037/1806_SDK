@@ -255,6 +255,8 @@ void siwifi_print_mem_info(void)
 
 void siwifi_deinit_debug_mem(void)
 {
+    struct siwifi_mem_ctx *tmp_mem;
+
     printk("%s\n", __func__);
     // before exit, print memory info
     siwifi_print_mem_info();
@@ -270,9 +272,11 @@ void siwifi_deinit_debug_mem(void)
 
 #ifdef CONFIG_PRIV_RX_BUFFER_POOL
     spin_lock_bh(&priv_rx_skbs_lock);
-    kfree(g_mem);
+    /* Save pointer and set g_mem to NULL under lock, then free after unlock */
+    tmp_mem = g_mem;
     g_mem = NULL;
     spin_unlock_bh(&priv_rx_skbs_lock);
+    kfree(tmp_mem);
 #else
     kfree(g_mem);
     g_mem = NULL;

@@ -2043,11 +2043,11 @@ dma_err:
 		desc_clear_tx_owner(desc);
 	}
 	desc = first;
+	dma_unmap_single(priv->dev, desc_get_buf_addr(desc),
+			desc_get_buf_len(desc), DMA_TO_DEVICE);
 	if(go_direct_xmit ){
 		spin_unlock_bh(&sf_gmac_tx_lock);
 	}
-	dma_unmap_single(priv->dev, desc_get_buf_addr(desc),
-			desc_get_buf_len(desc), DMA_TO_DEVICE);
 	dev_kfree_skb_any(skb);
 	return NETDEV_TX_OK;
 }
