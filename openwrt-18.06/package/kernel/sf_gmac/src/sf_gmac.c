@@ -1216,6 +1216,8 @@ static int sgmac_rx_refill(struct sgmac_priv *priv, struct sk_buff *last_skb)
 	struct sgmac_dma_desc *p;
 	dma_addr_t paddr;
 	int ret = SF_ACCEPT;
+	struct sk_buff *orig_last_skb = last_skb;
+	bool orig_last_skb_reused = false;
 	int bufsz = priv->ndev->mtu + ETH_HLEN + ETH_FCS_LEN + VLAN_HLEN;
 	unsigned int desc_irq_div = (DMA_RX_RING_SZ > 64) ? 64 : DMA_RX_RING_SZ/2;
 
@@ -1266,10 +1268,21 @@ static int sgmac_rx_refill(struct sgmac_priv *priv, struct sk_buff *last_skb)
 					priv->dma_buf_sz - NET_IP_ALIGN,
 					DMA_FROM_DEVICE);
 			if (dma_mapping_error(priv->dev, paddr)) {
+				/*
+				 * Caller drops the current packet when SF_DROP
+				 * is returned.  Free the original received skb
+				 * only if it was not already recycled back into
+				 * an RX descriptor.
+				 */
+				if (orig_last_skb && !orig_last_skb_reused &&
+				    skb != orig_last_skb)
+					dev_kfree_skb_any(orig_last_skb);
 				dev_kfree_skb_any(skb);
 				return SF_DROP;
 			}
 			priv->rx_skbuff[entry] = skb;
+			if (skb == orig_last_skb)
+				orig_last_skb_reused = true;
 			desc_set_buf_addr(p, paddr, priv->dma_buf_sz);
 		}
 
@@ -1828,8 +1841,11 @@ static int sgmac_open(struct net_device *ndev)
 	sgmac_set_flow_ctrl(priv, priv->rx_pause, priv->tx_pause);
 
 	ret = sgmac_dma_desc_rings_init(ndev);
-	if (ret < 0)
+	if (ret < 0) {
+		if (priv->phy_node)
+			phy_disconnect(priv->phydev);
 		return ret;
+	}
 
 #if IS_ENABLED(CONFIG_SFAX8_HNAT_DRIVER)
 	priv->phnat_priv->init(priv->hnat_pdev, priv->base, priv->ndev);
@@ -2274,6 +2290,10 @@ int sfax8_gmac_test_rx(struct sgmac_priv *priv, int limit) {
 					"Inconsistent Rx descriptor chain\n");
 			break;
 		}
+		priv->rx_skbuff[entry] = NULL;
+		dma_unmap_single(priv->dev, desc_get_buf_addr(p),
+				priv->dma_buf_sz - NET_IP_ALIGN,
+				DMA_FROM_DEVICE);
 
 		ret = sgmac_rx_refill(priv, skb);
 		if (ret == SF_DROP)
@@ -3847,7 +3867,8 @@ static int sgmac_probe(struct platform_device *pdev) {
 			goto err_phy;
 		}
 	}
-	ndev->ethtool_ops = &sgmac_ethtool_ops;
+	if (priv->phy_node)
+		ndev->ethtool_ops = &sgmac_ethtool_ops;
 
 #ifdef CONFIG_SFAX8_PTP
 	ret = sgmac_ptp_register(priv);
@@ -4004,6 +4025,9 @@ static int sgmac_remove(struct platform_device *pdev) {
 	clk_disable_unprepare(priv->eth_tsu_clk);
 #endif
 	clk_disable_unprepare(priv->eth_bus_clk);
+#ifdef CONFIG_SFAX8_GMAC_TCLKCHOOSE
+	clk_disable_unprepare(priv->eth_tclk);
+#endif
 
 	iounmap(priv->base);
 
