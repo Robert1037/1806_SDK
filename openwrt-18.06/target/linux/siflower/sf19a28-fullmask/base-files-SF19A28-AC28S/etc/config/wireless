@@ -68,7 +68,7 @@ config wifi-iface 'default_radio1'
 	option ifname 'wlan1'
 	option wpa_group_rekey '36000'
 	option group '1'
-	option netisolate '1'
+	option netisolate '0'
 	option disable_input '0'
 
 config wifi-iface 'guest_radio1'
